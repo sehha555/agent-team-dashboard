@@ -1,36 +1,125 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Agent Team Dashboard
 
-## Getting Started
+Claude Code Agent Team 即時監控面板 — 在瀏覽器中觀察 agent 協作狀態。
 
-First, run the development server:
+當你使用 Claude Code 的 [Agent Teams](https://docs.anthropic.com/en/docs/claude-code) 功能時，這個 dashboard 能即時顯示所有 team 的任務進度和成員狀態。
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## 截圖
+
+> 啟動後開啟 http://localhost:3100
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Agent Team Dashboard                    Phase 1    │
+├─────────────────────────────────────────────────────┤
+│  [Team A]  [Team B]  [Team C]                       │
+├──────────────────┬──────────────────────────────────┤
+│                  │  Agent Panel                     │
+│  Task Panel      │  ┌──────┐ ┌──────┐ ┌──────┐     │
+│                  │  │ Lead │ │Writer│ │Tester│     │
+│  #1 完成  ✓      │  └──────┘ └──────┘ └──────┘     │
+│  #2 進行中 ●     ├──────────────────────────────────┤
+│  #3 等待中       │  Stats Panel                     │
+│  #4 等待中       │  ████████░░░░ 42%                │
+│                  │  3 完成 · 2 進行中 · 4 等待中     │
+└──────────────────┴──────────────────────────────────┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 功能
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- **Team 切換** — 多 team 並存時可自由切換檢視
+- **Task 面板** — 即時顯示任務狀態（完成/進行中/等待中）、負責人、依賴關係
+- **Agent 面板** — 顯示每位成員的角色、狀態、當前任務
+- **Stats 面板** — 進度條 + 完成率 + 各狀態統計
+- **SSE 即時更新** — 透過 chokidar 監聽檔案變更，自動推送更新到瀏覽器
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 資料來源
 
-## Learn More
+直接讀取 Claude Code 在本機產生的檔案：
 
-To learn more about Next.js, take a look at the following resources:
+| 路徑 | 內容 |
+|------|------|
+| `~/.claude/teams/{name}/config.json` | Team 設定、成員列表 |
+| `~/.claude/tasks/{teamId}/*.json` | 任務資料（狀態、負責人、描述） |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+不需要額外設定或 API key，開箱即用。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 安裝
 
-## Deploy on Vercel
+```bash
+git clone https://github.com/sehha555/agent-team-dashboard.git ~/.claude/tools/dashboard
+cd ~/.claude/tools/dashboard
+npm install
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 使用
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 手動啟動
+
+```bash
+cd ~/.claude/tools/dashboard
+npm run dev -- -p 3100
+```
+
+開啟 http://localhost:3100
+
+### 搭配 Claude Code Skill（推薦）
+
+將 skill 檔案放到 `~/.claude/skills/dashboard/SKILL.md`，之後只需在 Claude Code 中輸入：
+
+```
+/dashboard
+```
+
+即可一鍵啟動。
+
+## 技術棧
+
+- [Next.js 16](https://nextjs.org/) (App Router)
+- [React 19](https://react.dev/)
+- [TypeScript](https://www.typescriptlang.org/)
+- [Tailwind CSS v4](https://tailwindcss.com/)
+- [Zustand 5](https://zustand.docs.pmnd.rs/)
+- [chokidar v5](https://github.com/paulmillr/chokidar) (檔案監聽 + SSE)
+
+## 專案結構
+
+```
+app/
+├── api/
+│   ├── teams/route.ts          # GET /api/teams — 所有 team 列表
+│   ├── tasks/[teamId]/route.ts # GET /api/tasks/:id — 任務 + agent 資料
+│   └── sse/route.ts            # SSE 端點（chokidar 即時推送）
+├── components/
+│   ├── TeamSelector.tsx        # Team tab 切換器
+│   ├── TaskPanel.tsx           # 任務列表面板
+│   ├── AgentPanel.tsx          # Agent 狀態卡片
+│   └── StatsPanel.tsx          # 進度統計面板
+├── lib/
+│   ├── types.ts                # TypeScript 型別定義
+│   └── parser.ts               # 檔案解析 + agent 狀態推導
+├── store/
+│   └── useDashboardStore.ts    # Zustand 全域狀態
+├── page.tsx                    # Bento Grid 主頁面 + SSE hook
+├── layout.tsx                  # Dark theme layout
+└── globals.css                 # 深色主題 + 自訂捲軸
+```
+
+## 設計決策
+
+- **獨立部署** — 不綁定任何特定專案，放在 `~/.claude/tools/` 下全域可用
+- **檔案系統驅動** — 直接讀本機 JSON，零外部依賴
+- **SSE 而非 WebSocket** — 單向資料流足夠，實作更簡單
+- **深色主題** — 為長時間開發設計，`#0a0a0a` 純黑底 + monospace 字型
+- **Agent 狀態推導** — 從 task ownership + status 自動推導 agent 是 working / idle / done
+
+## Roadmap
+
+- [x] Phase 1 — Task + Agent + Stats 面板
+- [ ] Phase 2 — Discussion + Summary 面板（agent 對話摘要）
+- [ ] 通知系統（任務完成、agent 卡住）
+- [ ] 歷史紀錄（team session 回放）
+
+## License
+
+MIT
