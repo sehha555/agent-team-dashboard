@@ -1,7 +1,7 @@
 'use client'
 
 import { create } from 'zustand'
-import type { Task, Agent, AgentSession } from '@/app/lib/types'
+import type { Task, Agent, AgentSession, BoardSnapshot } from '@/app/lib/types'
 
 // 統計資訊型別
 interface Stats {
@@ -22,6 +22,7 @@ interface DashboardState {
   isLoading: boolean
   error: string | null
   sessions: AgentSession[]          // 跨機器 Claude Code session（不分 team）
+  board: BoardSnapshot              // 分工看板（SSE board_update 整包更新）
 
   // Actions
   fetchTeams: () => Promise<void>
@@ -31,6 +32,26 @@ interface DashboardState {
   setError: (error: string | null) => void
   fetchSessions: () => Promise<void>
   updateSession: (session: AgentSession) => void
+  setBoard: (board: BoardSnapshot) => void
+  createTask: (title: string, detail?: string) => Promise<boolean>
+  taskAction: (id: number, action: 'done' | 'reopen') => Promise<void>  // 網頁只能完成或重開，認領由 agent 做
+  resolveAlert: (id: number) => Promise<void>
+}
+
+// 看板寫入：成功後畫面靠 SSE board_update 更新，失敗才把錯誤顯示出來
+async function boardRequest(url: string, method: string, body: unknown): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (res.ok) return null
+    const data = await res.json().catch(() => ({}))
+    return data.error ?? `操作失敗：${res.status}`
+  } catch {
+    return '連不上 Hub'
+  }
 }
 
 // 計算統計資訊的輔助函式
@@ -53,6 +74,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   isLoading: false,
   error: null,
   sessions: [],
+  board: { tasks: [], handoffs: [], alerts: [], timeline: [] },
 
   // 取得所有 team 列表
   fetchTeams: async () => {
@@ -140,5 +162,24 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         : [session, ...state.sessions]
       return { sessions }
     })
+  },
+
+  setBoard: (board: BoardSnapshot) => set({ board }),
+
+  // 網頁上開的任務，建立者一律是使用者
+  createTask: async (title: string, detail?: string) => {
+    const error = await boardRequest('/api/board/tasks', 'POST', { title, detail, createdBy: 'user' })
+    if (error) set({ error })
+    return error === null
+  },
+
+  taskAction: async (id: number, action: 'done' | 'reopen') => {
+    const error = await boardRequest('/api/board/tasks', 'PATCH', { id, action, by: 'user' })
+    if (error) set({ error })
+  },
+
+  resolveAlert: async (id: number) => {
+    const error = await boardRequest('/api/board/alerts', 'PATCH', { id })
+    if (error) set({ error })
   },
 }))

@@ -101,6 +101,71 @@ node "<dashboard 路徑>/hooks/report.mjs"
 - 腳本 timeout 1 秒，Hub 沒開或網路斷都會靜默結束（exit 0），不會擋住 Claude
 - 建議 hook 設 `"async": true`，完全不影響 Claude 的回應速度
 
+## 第二階段：分工、交接、防撞、通知
+
+頁面由上到下：需要你處理（警示）→ 兩台電腦的 session（每台一欄）→ 任務看板 → 紀錄 → 舊的 Agent Team 面板（收成一行，點開才顯示）。
+
+- **任務**：網頁按「+ 新增任務」，或 agent 用 MCP 工具開任務、認領、完成。狀態分待認領 / 進行中 / 完成，標示建立者（你或哪台電腦）
+- **交接**：agent 用 MCP 的 `handoff` 寫「做完什麼、還剩什麼」，對方用 `inbox` 收
+- **紀錄**：交接、完成任務、每輪總結（Stop 時取最後一則回覆前 300 字）；點「展開」看該 session 那段時間的細事件（每個 session 保留最近 50 筆）
+- **防撞**：`hooks/guard.mjs` 在 Edit / Write / MultiEdit / NotebookEdit 前問 Hub，另一個 session（含同一台的其他 session）30 分鐘內改過同一個檔，就讓 Claude 停下來問你
+- **卡住偵測**：working 狀態超過 5 分鐘沒事件，發一次「可能卡住」，恢復活動前不重發
+- **通知**：等你確認、撞檔、完成任務、交接、可能卡住、指令失敗，都會送到 Discord（同類同 session 同檔案 10 分鐘內只送一次）
+
+資料存在 `data/board.json`（任務、交接、警示、紀錄），防撞紀錄只放記憶體，Hub 重啟就清空。
+
+### hook 設定（每台電腦的 `~/.claude/settings.json`）
+
+在第一階段的五個事件之外，再加：
+
+| 事件 | matcher | 命令 | 設定 |
+|------|---------|------|------|
+| PreToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit` | `node "<dashboard 路徑>/hooks/guard.mjs"` | 同步（不要 async），`"timeout": 3` |
+| Notification | （不填） | `node "<dashboard 路徑>/hooks/report.mjs"` | `"async": true` |
+| PostToolUseFailure | （不填） | `node "<dashboard 路徑>/hooks/report.mjs"` | `"async": true` |
+
+- guard 沒衝突、Hub 沒開、逾時（800 毫秒）、任何錯誤都直接放行，不會擋住 Claude
+- Notification 只回報需要你處理的類型（權限確認、問答對話框等），登入成功、額度提醒之類不回報
+- `AGENT_HUB_URL` 填 Hub 根網址（例如 `http://100.66.71.62:3100`），舊寫法填到 `/api/events` 也相容
+
+### MCP 工具（讓 Claude 自己開任務、交接）
+
+```bash
+npm install
+claude mcp add --scope user agent-hub -- node <dashboard 絕對路徑>/mcp/server.mjs
+```
+
+工具：`hub_status`、`task_list`、`task_create`、`task_claim`、`task_done`、`handoff`、`inbox`。
+本機身分用電腦名稱（hostname），session 用 Claude Code 傳下來的 `CLAUDE_CODE_SESSION_ID`。
+
+### Discord 通知
+
+在 Discord 頻道設定 → 整合 → Webhook 建一個 webhook，把網址寫進 Hub 那台電腦的 `.env.local`：
+
+```
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+```
+
+`.env.local` 不進版本控制。改完要重啟 Hub 才會生效；沒設就只顯示在網頁上，不送通知。
+
+### API
+
+| 路徑 | 方法 | 用途 |
+|------|------|------|
+| `/api/board/tasks` | GET / POST / PATCH | 列出、新增、`{id, action: claim\|done\|reopen, by}` |
+| `/api/board/handoffs` | GET `?to=機器` / POST / PATCH | 收件匣、新增交接、`{id}` 標已讀 |
+| `/api/board/alerts` | GET / PATCH | 未處理的警示、`{id}` 標已處理 |
+| `/api/check-edit` | POST | guard 用：`{machine, sessionId, project, relPath}` |
+
+### 測試用 Hub（不影響正式 Hub）
+
+`AGENT_HUB_DATA_DIR` 換資料夾、`NEXT_DIST_DIR` 換 build 輸出資料夾，就能在同一個目錄另開一個 Hub：
+
+```bash
+NEXT_DIST_DIR=data/next-test npx next build
+AGENT_HUB_DATA_DIR=$PWD/data/test NEXT_DIST_DIR=data/next-test npx next start -p 3101
+```
+
 ## 技術棧
 
 - [Next.js 16](https://nextjs.org/) (App Router)
@@ -125,7 +190,12 @@ app/
 │   └── StatsPanel.tsx          # 進度統計面板
 ├── lib/
 │   ├── types.ts                # TypeScript 型別定義
-│   └── parser.ts               # 檔案解析 + agent 狀態推導
+│   ├── parser.ts               # 檔案解析 + agent 狀態推導
+│   ├── agents-store.ts         # 跨機器 session 狀態（data/agents.json）
+│   ├── board-store.ts          # 任務、交接、警示、紀錄（data/board.json）
+│   ├── conflict.ts             # 防撞：誰最近改過哪個檔
+│   ├── watchdog.ts             # 卡住偵測（instrumentation.ts 啟動）
+│   └── notify.ts               # Discord 通知
 ├── store/
 │   └── useDashboardStore.ts    # Zustand 全域狀態
 ├── page.tsx                    # Bento Grid 主頁面 + SSE hook
@@ -145,7 +215,7 @@ app/
 
 - [x] Phase 1 — Task + Agent + Stats 面板
 - [ ] Phase 2 — Discussion + Summary 面板（agent 對話摘要）
-- [ ] 通知系統（任務完成、agent 卡住）
+- [x] 通知系統（任務完成、agent 卡住）— 第二階段，送 Discord
 - [ ] 歷史紀錄（team session 回放）
 
 ## License

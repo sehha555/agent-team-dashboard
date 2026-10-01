@@ -5,8 +5,10 @@ import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import type { AgentEvent, AgentSession } from './types'
 
-const DATA_FILE = path.join(process.cwd(), 'data', 'agents.json')
-const MAX_EVENTS = 20
+// AGENT_HUB_DATA_DIR 讓測試用的 Hub 跟正式 Hub 分開存
+const DATA_FILE = path.join(process.env.AGENT_HUB_DATA_DIR || path.join(process.cwd(), 'data'), 'agents.json')
+// 紀錄「展開」要看細事件，所以比第一階段多留一些
+const MAX_EVENTS = 50
 
 interface AgentHub {
   sessions: Map<string, AgentSession>
@@ -50,11 +52,14 @@ function projectName(cwd: string): string {
  * - UserPromptSubmit / PreToolUse → working
  * - SessionStart / Stop → idle
  * - SessionEnd → ended
+ * - Notification → waiting（等使用者確認）；之後任何其他事件都恢復成 working
  */
 function nextStatus(event: string, prev: AgentSession['status']): AgentSession['status'] {
+  if (event === 'Notification') return 'waiting'
   if (event === 'UserPromptSubmit' || event === 'PreToolUse') return 'working'
   if (event === 'SessionStart' || event === 'Stop') return 'idle'
   if (event === 'SessionEnd') return 'ended'
+  if (prev === 'waiting') return 'working'
   return prev
 }
 

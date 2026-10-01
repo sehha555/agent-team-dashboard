@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Hub 資料與測試 build 輸出（NEXT_DIST_DIR）
+    "data/**",
   ]),
 ]);
 

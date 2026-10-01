@@ -2,6 +2,7 @@
 // GET  /api/events — 回傳目前所有 session 狀態
 import { NextResponse } from 'next/server'
 import { getSessions, recordEvent } from '@/app/lib/agents-store'
+import { addTurnSummary, raiseAlert } from '@/app/lib/board-store'
 
 // 必填欄位：非空字串
 function isNonEmptyString(value: unknown): value is string {
@@ -37,15 +38,29 @@ export async function POST(request: Request) {
   const parsedTs = typeof body.ts === 'number' ? body.ts : Date.parse(String(body.ts))
   const ts = Number.isFinite(parsedTs) ? parsedTs : Date.now()
 
+  const summary = optionalString(body.summary)
   const session = recordEvent({
     machine,
     sessionId,
     cwd: optionalString(body.cwd) ?? '',
     event,
     tool: optionalString(body.tool),
-    detail: optionalString(body.detail),
+    // Stop 沒有 detail 時用這輪的總結當「最後動作」
+    detail: optionalString(body.detail) ?? (event === 'Stop' ? summary : undefined),
+    summary,
     ts,
   })
+
+  // 事件帶出的看板變化：每輪總結、等你確認、指令失敗
+  const who = { machine, sessionId, project: session.project }
+  if (event === 'Stop' && summary) {
+    addTurnSummary(machine, sessionId, session.project, summary)
+  } else if (event === 'Notification') {
+    raiseAlert({ ...who, kind: 'needs_input', text: session.lastDetail ?? 'Claude 在等你回應' })
+  } else if (event === 'PostToolUseFailure') {
+    const tool = optionalString(body.tool) ?? '工具'
+    raiseAlert({ ...who, kind: 'failure', text: `${tool} 失敗：${session.lastDetail ?? ''}`, file: tool })
+  }
 
   return NextResponse.json({ ok: true, session })
 }

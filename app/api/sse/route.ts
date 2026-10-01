@@ -1,9 +1,10 @@
-// GET /api/sse — SSE 即時推送，監聽 tasks/teams 目錄變更 + 跨機器 agent session 更新
+// GET /api/sse — SSE 即時推送，監聽 tasks/teams 目錄變更 + 跨機器 agent session 更新 + 分工看板更新
 // 支援 query param ?teamId=xxx 過濾特定 team（只影響 tasks 變更）
 import path from 'node:path'
 import os from 'node:os'
 import { watch } from 'chokidar'
 import { subscribe } from '@/app/lib/agents-store'
+import { getSnapshot, subscribeBoard } from '@/app/lib/board-store'
 import type { SSEEvent } from '@/app/lib/types'
 
 const TEAMS_DIR = path.join(os.homedir(), '.claude', 'teams')
@@ -24,6 +25,10 @@ export async function GET(request: Request) {
       // 送出初始連線確認訊息
       const pingEvent: SSEEvent = { type: 'full_refresh', data: { message: '連線建立' } }
       controller.enqueue(new TextEncoder().encode(formatSSE(pingEvent)))
+
+      // 連線（含自動重連）時先送一次看板快照
+      const boardEvent: SSEEvent = { type: 'board_update', data: getSnapshot() }
+      controller.enqueue(new TextEncoder().encode(formatSSE(boardEvent)))
 
       // 建立 chokidar watcher，同時監聽 tasks 和 teams 目錄
       const watchPaths: string[] = [TASKS_DIR, TEAMS_DIR]
@@ -94,9 +99,20 @@ export async function GET(request: Request) {
         }
       })
 
+      // 分工看板更新（tasks / handoffs / alerts / timeline 整包推送）
+      const unsubscribeBoard = subscribeBoard((snapshot) => {
+        try {
+          const sseEvent: SSEEvent = { type: 'board_update', data: snapshot }
+          controller.enqueue(new TextEncoder().encode(formatSSE(sseEvent)))
+        } catch {
+          // controller 已關閉時靜默忽略（client 已斷線）
+        }
+      })
+
       // 請求取消時（client 斷線）關閉 watcher 並取消訂閱
       request.signal.addEventListener('abort', () => {
         unsubscribe()
+        unsubscribeBoard()
         watcher.close().catch(() => {})
         try {
           controller.close()

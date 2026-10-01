@@ -10,10 +10,12 @@
     "hub": "next build && next start -p 3100 -H 0.0.0.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "chokidar": "^5.0.0",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "zod": "^4.6.5",
     "zustand": "^5.0.11"
   },
   "devDependencies": {

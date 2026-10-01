@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useDashboardStore } from '@/app/store/useDashboardStore'
-import type { AgentSession } from '@/app/lib/types'
+import type { AgentSession, BoardTask } from '@/app/lib/types'
 
 // 超過 10 分鐘沒有事件視為 stale
 const STALE_MS = 10 * 60 * 1000
@@ -26,6 +26,16 @@ function StatusLight({ status }: { status: DisplayStatus }) {
         {/* 脈動綠色光環 */}
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#22c55e] opacity-60" />
         <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#22c55e]" />
+      </span>
+    )
+  }
+
+  if (status === 'waiting') {
+    return (
+      <span className="relative flex h-2.5 w-2.5" title="等你確認">
+        {/* 脈動橘色光環：Claude 停下來等使用者 */}
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#f97316] opacity-60" />
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#f97316]" />
       </span>
     )
   }
@@ -59,6 +69,7 @@ function StatusLight({ status }: { status: DisplayStatus }) {
 function statusLabel(status: DisplayStatus): string {
   if (status === 'working') return '工作中'
   if (status === 'idle') return '閒置'
+  if (status === 'waiting') return '等你確認'
   if (status === 'stale') return '無回應'
   return '已結束'
 }
@@ -67,6 +78,7 @@ function statusLabel(status: DisplayStatus): string {
 function statusTextClass(status: DisplayStatus): string {
   if (status === 'working') return 'text-[#22c55e]'
   if (status === 'idle') return 'text-[#eab308]'
+  if (status === 'waiting') return 'text-[#f97316]'
   return 'text-[#6b7280]'
 }
 
@@ -85,8 +97,8 @@ function clockTime(ts: number): string {
   return new Date(ts).toLocaleTimeString('zh-TW', { hour12: false })
 }
 
-// 單一 session 卡片，點擊展開最近事件
-function SessionCard({ session, now }: { session: AgentSession; now: number }) {
+// 單一 session 卡片，點擊展開最近事件；tasks 是這個 session 認領中的任務
+function SessionCard({ session, now, tasks }: { session: AgentSession; now: number; tasks: BoardTask[] }) {
   const [expanded, setExpanded] = useState(false)
   const status = displayStatus(session, now)
 
@@ -96,9 +108,11 @@ function SessionCard({ session, now }: { session: AgentSession; now: number }) {
         'rounded-lg border bg-[#141414] p-3 transition-colors',
         status === 'working'
           ? 'border-[#22c55e]/30 hover:border-[#22c55e]/50'
-          : status === 'idle'
-            ? 'border-[#eab308]/20 hover:border-[#eab308]/40'
-            : 'border-[#2a2a2a]',
+          : status === 'waiting'
+            ? 'border-[#f97316]/50 hover:border-[#f97316]/70'
+            : status === 'idle'
+              ? 'border-[#eab308]/20 hover:border-[#eab308]/40'
+              : 'border-[#2a2a2a]',
       ].join(' ')}
     >
       <button
@@ -127,9 +141,15 @@ function SessionCard({ session, now }: { session: AgentSession; now: number }) {
             {statusLabel(status)}
           </span>
         </div>
+        {/* 認領中的任務 */}
+        {tasks.map((t) => (
+          <p key={t.id} className="mt-1.5 text-xs text-[#3b82f6] truncate" title={t.title}>
+            #{t.id} {t.title}
+          </p>
+        ))}
         {session.lastDetail && (
           <p className="mt-1.5 text-xs text-[#9ca3af] truncate" title={session.lastDetail}>
-            {session.lastDetail}
+            最後：{session.lastDetail}
           </p>
         )}
       </button>
@@ -155,7 +175,7 @@ function SessionCard({ session, now }: { session: AgentSession; now: number }) {
 }
 
 export default function MachinePanel() {
-  const { sessions, fetchSessions } = useDashboardStore()
+  const { sessions, fetchSessions, board } = useDashboardStore()
   // 每 15 秒更新一次「現在時間」，讓相對時間和 stale 判斷自動前進
   const [now, setNow] = useState(0)
 
@@ -183,6 +203,16 @@ export default function MachinePanel() {
 
   const statuses = sessions.map((s) => displayStatus(s, now))
 
+  // session 認領中的任務：同機器同 session；MCP 取不到 sessionId 時退而比對同機器同專案
+  const claimedTasks = (s: AgentSession) =>
+    board.tasks.filter(
+      (t) =>
+        t.status === 'claimed' &&
+        t.claimedBy?.machine === s.machine &&
+        (t.claimedBy.sessionId === s.sessionId ||
+          (t.claimedBy.sessionId === 'mcp' && t.claimedBy.project === s.project))
+    )
+
   return (
     <div className="flex flex-col gap-3">
       {/* 面板標題 */}
@@ -196,6 +226,10 @@ export default function MachinePanel() {
             {statuses.filter((s) => s === 'working').length} 工作中
           </span>
           <span className="flex items-center gap-1">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#f97316]" />
+            {statuses.filter((s) => s === 'waiting').length} 等你確認
+          </span>
+          <span className="flex items-center gap-1">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#eab308]" />
             {statuses.filter((s) => s === 'idle').length} 閒置
           </span>
@@ -207,22 +241,25 @@ export default function MachinePanel() {
           <p className="text-sm text-[#6b7280]">尚未收到任何機器的事件</p>
         </div>
       ) : (
-        groups.map(([machine, list]) => (
-          <div key={machine} className="flex flex-col gap-2">
-            {/* 機器名稱 */}
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-[#e5e5e5]">{machine}</span>
-              <span className="text-[#404040]">{list.length} 個 session</span>
+        // 每台機器一欄，兩台並排
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {groups.map(([machine, list]) => (
+            <div key={machine} className="flex flex-col gap-2 min-w-0">
+              {/* 機器名稱 */}
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-[#e5e5e5]">{machine}</span>
+                <span className="text-[#404040]">{list.length} 個 session</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {[...list]
+                  .sort((a, b) => b.lastTs - a.lastTs)
+                  .map((s) => (
+                    <SessionCard key={s.sessionId} session={s} now={now} tasks={claimedTasks(s)} />
+                  ))}
+              </div>
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {[...list]
-                .sort((a, b) => b.lastTs - a.lastTs)
-                .map((s) => (
-                  <SessionCard key={s.sessionId} session={s} now={now} />
-                ))}
-            </div>
-          </div>
-        ))
+          ))}
+        </div>
       )}
     </div>
   )
