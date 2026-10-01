@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useDashboardStore } from '@/app/store/useDashboardStore'
 import type { AgentEvent, TimelineItem } from '@/app/lib/types'
+import { eventPhrase, machineLabel } from '@/app/lib/display'
 
 // 一次顯示幾筆粗紀錄
 const PAGE_SIZE = 30
@@ -49,8 +50,8 @@ function TimelineRow({ item }: { item: TimelineItem }) {
         <span className="shrink-0 text-[#404040] tabular-nums">{shortTime(item.ts)}</span>
         <span className={`shrink-0 border rounded px-1.5 ${style.className}`}>{style.label}</span>
         <span className="shrink-0 text-[#e5e5e5]">
-          {item.machine}
-          {item.project ? `/${item.project}` : ''}
+          {machineLabel(item.machine)}
+          {item.project ? ` ${item.project}` : ''}
         </span>
         <span className="text-[#9ca3af] break-all flex-1">{item.text}</span>
         {item.sessionId && (
@@ -71,7 +72,7 @@ function TimelineRow({ item }: { item: TimelineItem }) {
             events.map((e, i) => (
               <li key={`${e.ts}-${i}`} className="flex gap-2 text-xs min-w-0">
                 <span className="shrink-0 text-[#404040] tabular-nums">{clockTime(e.ts)}</span>
-                <span className="shrink-0 text-[#6b7280]">{e.tool ?? e.event}</span>
+                <span className="shrink-0 text-[#6b7280]">{eventPhrase(e)}</span>
                 {e.detail && (
                   <span className="text-[#9ca3af] truncate" title={e.detail}>
                     {e.detail}

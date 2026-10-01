@@ -106,7 +106,10 @@ async function main() {
     ts: Date.now(),
   }
 
-  if (eventName === 'Stop') {
+  if (eventName === 'PostToolUse') {
+    // 只回報工具名稱，代表「這個工具跑完了」，不帶指令或輸出內容
+    event.detail = undefined
+  } else if (eventName === 'Stop') {
     event.summary = stopSummary(input)
   } else if (eventName === 'Notification') {
     event.detail = oneLine(input.message, 200)

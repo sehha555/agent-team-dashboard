@@ -97,6 +97,8 @@ export function recordEvent(evt: AgentEvent): AgentSession {
     lastEvent: evt.event,
     lastDetail: evt.detail,
     lastTs: evt.ts,
+    // 只在第一次 UserPromptSubmit 寫入，之後沿用
+    firstPrompt: prev?.firstPrompt ?? (evt.event === 'UserPromptSubmit' ? evt.detail : undefined),
     events: [evt, ...(prev?.events ?? [])].slice(0, MAX_EVENTS),
   }
 

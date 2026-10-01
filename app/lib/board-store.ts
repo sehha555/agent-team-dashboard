@@ -162,6 +162,21 @@ export function hasStaleAlertSince(machine: string, sessionId: string, since: nu
   )
 }
 
+/**
+ * 把這個 session 還沒處理的 stale 警示標成已處理（有新事件、或推定已關閉時呼叫）
+ */
+export function resolveStaleAlerts(machine: string, sessionId: string) {
+  const now = Date.now()
+  let changed = false
+  for (const a of getHub().board.alerts) {
+    if (a.kind === 'stale' && !a.resolvedAt && a.machine === machine && a.sessionId === sessionId) {
+      a.resolvedAt = now
+      changed = true
+    }
+  }
+  if (changed) commit()
+}
+
 // ---------- tasks ----------
 
 export function listTasks(): BoardTask[] {

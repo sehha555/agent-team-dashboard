@@ -2,7 +2,7 @@
 // GET  /api/events — 回傳目前所有 session 狀態
 import { NextResponse } from 'next/server'
 import { getSessions, recordEvent } from '@/app/lib/agents-store'
-import { addTurnSummary, raiseAlert } from '@/app/lib/board-store'
+import { addTurnSummary, raiseAlert, resolveStaleAlerts } from '@/app/lib/board-store'
 
 // 必填欄位：非空字串
 function isNonEmptyString(value: unknown): value is string {
@@ -50,6 +50,9 @@ export async function POST(request: Request) {
     summary,
     ts,
   })
+
+  // 有新事件代表沒卡住，之前的「可能卡住」自動標成已處理
+  resolveStaleAlerts(machine, sessionId)
 
   // 事件帶出的看板變化：每輪總結、等你確認、指令失敗
   const who = { machine, sessionId, project: session.project }

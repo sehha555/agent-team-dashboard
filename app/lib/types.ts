@@ -57,6 +57,7 @@ export interface AgentSession {
   lastEvent: string
   lastDetail?: string
   lastTs: number
+  firstPrompt?: string   // 第一次 UserPromptSubmit 的文字（舊資料沒有）
   events: AgentEvent[]   // 最近 50 筆，新的在前
 }
 

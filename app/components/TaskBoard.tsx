@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useDashboardStore } from '@/app/store/useDashboardStore'
 import type { BoardTask } from '@/app/lib/types'
+import { machineLabel } from '@/app/lib/display'
 
 // 三欄：待認領 / 進行中 / 完成
 const COLUMNS: { status: BoardTask['status']; label: string; dot: string }[] = [
@@ -16,7 +17,7 @@ const DONE_LIMIT = 20
 
 // 建立者：使用者顯示「你」，agent 顯示機器名
 function creatorLabel(createdBy: string): string {
-  return createdBy === 'user' ? '你' : createdBy.split('/')[0]
+  return createdBy === 'user' ? '你' : machineLabel(createdBy.split('/')[0])
 }
 
 // 新增任務表單（收合時只是一顆按鈕）
@@ -90,7 +91,7 @@ function TaskCard({ task }: { task: BoardTask }) {
       {task.detail && <p className="text-[#9ca3af] whitespace-pre-wrap">{task.detail}</p>}
       {task.claimedBy && (
         <p className="text-[#3b82f6]/80">
-          認領：{task.claimedBy.machine}/{task.claimedBy.project || '(未知專案)'}
+          認領：{machineLabel(task.claimedBy.machine)} {task.claimedBy.project || '(未知專案)'}
         </p>
       )}
       {task.doneSummary && <p className="text-[#22c55e]/70">結果：{task.doneSummary}</p>}
