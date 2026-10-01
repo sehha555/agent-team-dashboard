@@ -1,9 +1,9 @@
 // 卡住偵測：每 60 秒掃一次，依最後一筆事件判斷
 // - 最後是 PreToolUse（工具還在跑）：不算卡住，超過 30 分鐘才發「指令已跑 N 分鐘」
 // - 最後是其他事件（工具跑完、剛下指令）：working 超過 5 分鐘沒事件就發「可能卡住」
-// - 任何狀態超過 60 分鐘完全沒事件：推定已關閉，不發警示，並把它還沒處理的 stale 警示標成已處理
+// - 任何狀態超過 60 分鐘完全沒事件：推定已關閉，不發警示，working 改成 idle，並把它還沒處理的 stale 警示標成已處理
 // 同一個 session 在恢復活動之前只發一次（以「上次事件之後是否已發過」判斷，Hub 重啟也不會重發）
-import { getSessions } from './agents-store'
+import { getSessions, markIdle } from './agents-store'
 import { hasStaleAlertSince, raiseAlert, resolveStaleAlerts } from './board-store'
 
 const INTERVAL_MS = 60 * 1000
@@ -23,6 +23,7 @@ export function scanStale(now = Date.now()) {
 
     if (idleMs > GONE_MS) {
       resolveStaleAlerts(s.machine, s.sessionId)
+      markIdle(s.machine, s.sessionId)
       continue
     }
     if (s.status !== 'working') continue

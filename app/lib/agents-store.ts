@@ -109,6 +109,18 @@ export function recordEvent(evt: AgentEvent): AgentSession {
 }
 
 /**
+ * 把太久沒事件的 working session 改成 idle（watchdog 用）。不動 lastTs，下一筆事件來會照常恢復
+ */
+export function markIdle(machine: string, sessionId: string) {
+  const { sessions, emitter } = getHub()
+  const s = sessions.get(sessionKey(machine, sessionId))
+  if (!s || s.status !== 'working') return
+  s.status = 'idle'
+  persist(sessions)
+  emitter.emit('update', s)
+}
+
+/**
  * 訂閱 session 變更，回傳取消訂閱函式
  */
 export function subscribe(listener: (session: AgentSession) => void): () => void {
