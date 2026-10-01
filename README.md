@@ -73,6 +73,34 @@ npm run dev -- -p 3100
 
 即可一鍵啟動。
 
+## 跨機器 Session 即時狀態（Hub）
+
+頁面頂部的「Claude Sessions」面板會依機器分組，顯示每台電腦上所有 Claude Code session 正在做什麼。
+做法：各台電腦的 Claude Code 用 hook 執行 `hooks/report.mjs`，把事件 POST 給 Hub；網頁透過 SSE 即時更新。
+
+### 啟動 Hub（桌機）
+
+```bash
+cd ~/.claude/tools/dashboard
+npm run hub
+```
+
+`hub` 會先 `next build` 再 `next start -p 3100 -H 0.0.0.0`，監聽所有網卡，其他機器可透過 Tailscale IP 連線。
+用 production 模式而非 `next dev`，是因為 dev 模式會擋非 localhost 來源的開發資源請求，且有重新編譯、模組重載的不穩定。
+Session 資料存在 `data/agents.json`（不進版本控制），重啟後會讀回。
+
+### 設定 hook（每台電腦）
+
+需要 Node 18 以上。在 `~/.claude/settings.json` 的 `hooks` 加上 SessionStart、UserPromptSubmit、PreToolUse、Stop、SessionEnd 五個事件，命令都是：
+
+```
+node "<dashboard 路徑>/hooks/report.mjs"
+```
+
+- Hub 位址預設 `http://100.66.71.62:3100/api/events`，可用環境變數 `AGENT_HUB_URL` 覆寫
+- 腳本 timeout 1 秒，Hub 沒開或網路斷都會靜默結束（exit 0），不會擋住 Claude
+- 建議 hook 設 `"async": true`，完全不影響 Claude 的回應速度
+
 ## 技術棧
 
 - [Next.js 16](https://nextjs.org/) (App Router)

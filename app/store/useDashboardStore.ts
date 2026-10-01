@@ -1,7 +1,7 @@
 'use client'
 
 import { create } from 'zustand'
-import type { Task, Agent } from '@/app/lib/types'
+import type { Task, Agent, AgentSession } from '@/app/lib/types'
 
 // 統計資訊型別
 interface Stats {
@@ -21,6 +21,7 @@ interface DashboardState {
   stats: Stats
   isLoading: boolean
   error: string | null
+  sessions: AgentSession[]          // 跨機器 Claude Code session（不分 team）
 
   // Actions
   fetchTeams: () => Promise<void>
@@ -28,6 +29,8 @@ interface DashboardState {
   selectTeam: (teamId: string) => void
   updateTask: (task: Task) => void
   setError: (error: string | null) => void
+  fetchSessions: () => Promise<void>
+  updateSession: (session: AgentSession) => void
 }
 
 // 計算統計資訊的輔助函式
@@ -49,6 +52,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   stats: { total: 0, completed: 0, inProgress: 0, pending: 0, completionPercent: 0 },
   isLoading: false,
   error: null,
+  sessions: [],
 
   // 取得所有 team 列表
   fetchTeams: async () => {
@@ -112,4 +116,29 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
   // 設定錯誤訊息（供外部清除用）
   setError: (error: string | null) => set({ error }),
+
+  // 取得所有跨機器 session（不動共用的 isLoading/error，避免干擾 team 面板）
+  fetchSessions: async () => {
+    try {
+      const res = await fetch('/api/events')
+      if (!res.ok) return
+      const data: { sessions: AgentSession[] } = await res.json()
+      set({ sessions: data.sessions ?? [] })
+    } catch {
+      // Hub 暫時連不上，保留現有資料
+    }
+  },
+
+  // 從 SSE 接收到 agent_update 時，更新單一 session
+  updateSession: (session: AgentSession) => {
+    set((state) => {
+      const isSame = (s: AgentSession) =>
+        s.machine === session.machine && s.sessionId === session.sessionId
+      const exists = state.sessions.some(isSame)
+      const sessions = exists
+        ? state.sessions.map((s) => (isSame(s) ? session : s))
+        : [session, ...state.sessions]
+      return { sessions }
+    })
+  },
 }))

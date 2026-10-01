@@ -1,8 +1,9 @@
-// GET /api/sse — SSE 即時推送，監聽 tasks/teams 目錄變更
-// 支援 query param ?teamId=xxx 過濾特定 team
+// GET /api/sse — SSE 即時推送，監聽 tasks/teams 目錄變更 + 跨機器 agent session 更新
+// 支援 query param ?teamId=xxx 過濾特定 team（只影響 tasks 變更）
 import path from 'node:path'
 import os from 'node:os'
 import { watch } from 'chokidar'
+import { subscribe } from '@/app/lib/agents-store'
 import type { SSEEvent } from '@/app/lib/types'
 
 const TEAMS_DIR = path.join(os.homedir(), '.claude', 'teams')
@@ -83,8 +84,19 @@ export async function GET(request: Request) {
         console.error('[SSE] chokidar 監聽錯誤:', error)
       })
 
-      // 請求取消時（client 斷線）關閉 watcher
+      // 跨機器 agent session 更新（不受 teamId 過濾）
+      const unsubscribe = subscribe((session) => {
+        try {
+          const sseEvent: SSEEvent = { type: 'agent_update', data: session }
+          controller.enqueue(new TextEncoder().encode(formatSSE(sseEvent)))
+        } catch {
+          // controller 已關閉時靜默忽略（client 已斷線）
+        }
+      })
+
+      // 請求取消時（client 斷線）關閉 watcher 並取消訂閱
       request.signal.addEventListener('abort', () => {
+        unsubscribe()
         watcher.close().catch(() => {})
         try {
           controller.close()

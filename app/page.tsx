@@ -5,34 +5,41 @@ import TeamSelector from '@/app/components/TeamSelector'
 import TaskPanel from '@/app/components/TaskPanel'
 import AgentPanel from '@/app/components/AgentPanel'
 import StatsPanel from '@/app/components/StatsPanel'
+import MachinePanel from '@/app/components/MachinePanel'
 import { useDashboardStore } from '@/app/store/useDashboardStore'
 
-// SSE 連線管理
+// SSE 連線管理（agent_update 不依賴 team 選擇，所以一律連線）
 function useSSE() {
-  const { selectedTeamId, fetchTasks } = useDashboardStore()
+  const { selectedTeamId, fetchTasks, fetchSessions, updateSession } = useDashboardStore()
   const eventSourceRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
-    if (!selectedTeamId) return
-
     // 關閉先前的連線
     eventSourceRef.current?.close()
 
-    const url = `/api/sse?teamId=${encodeURIComponent(selectedTeamId)}`
+    const url = selectedTeamId
+      ? `/api/sse?teamId=${encodeURIComponent(selectedTeamId)}`
+      : '/api/sse'
     const es = new EventSource(url)
     eventSourceRef.current = es
 
     // 收到更新時重新拉取（簡單可靠）
     es.addEventListener('task_update', () => {
-      fetchTasks(selectedTeamId)
+      if (selectedTeamId) fetchTasks(selectedTeamId)
     })
 
     es.addEventListener('team_update', () => {
-      fetchTasks(selectedTeamId)
+      if (selectedTeamId) fetchTasks(selectedTeamId)
     })
 
+    // 每次（重新）連線都會收到，順便補抓斷線期間漏掉的 session 更新
     es.addEventListener('full_refresh', () => {
-      fetchTasks(selectedTeamId)
+      if (selectedTeamId) fetchTasks(selectedTeamId)
+      fetchSessions()
+    })
+
+    es.addEventListener('agent_update', (e) => {
+      updateSession(JSON.parse((e as MessageEvent).data))
     })
 
     es.onerror = () => {
@@ -43,7 +50,7 @@ function useSSE() {
       es.close()
       eventSourceRef.current = null
     }
-  }, [selectedTeamId, fetchTasks])
+  }, [selectedTeamId, fetchTasks, fetchSessions, updateSession])
 }
 
 export default function DashboardPage() {
@@ -81,6 +88,11 @@ export default function DashboardPage() {
           </button>
         </div>
       )}
+
+      {/* 跨機器 Claude Code session（不分 team，一律顯示） */}
+      <div className="rounded-lg border border-[#2a2a2a] bg-[#111111] p-4">
+        <MachinePanel />
+      </div>
 
       {/* Team 選擇器 */}
       <TeamSelector />
